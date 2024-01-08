@@ -17,13 +17,15 @@ Request Body:
 Description: The request body should contain a JSON object with an array of rules that define the criteria for detecting fraudulent transactions.
 Format:
 json
-```{
+```
+{
     "rules": [
         "Rule 1 description",
         "Rule 2 description",
         // additional rules...
     ]
-}```
+}
+```
 Response: Returns an analysis ID which can be used to check the status of the analysis.3. Check Analysis Status
 Endpoint: GET /analyze/:analysisId/status
 Description: Checks the status of an ongoing analysis.
