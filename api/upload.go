@@ -10,7 +10,6 @@ import (
 
 // Handlers for each endpoint
 func uploadTransactions(c *gin.Context) {
-	// Implementation for uploading transactions
 	// Accept a file upload
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -42,5 +41,5 @@ func uploadTransactions(c *gin.Context) {
 	}
 
 	// Respond with the NanoID
-	c.JSON(http.StatusOK, gin.H{"message": "File uploaded successfully", "id": id})
+	c.JSON(http.StatusOK, gin.H{"message": "File uploaded successfully", "file_id": id})
 }

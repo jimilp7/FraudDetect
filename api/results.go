@@ -17,6 +17,7 @@ func getAnalysisResults(c *gin.Context) {
 		return
 	}
 
+	// Return the final analysis result
 	c.JSON(200, gin.H{
 		"result": engine.AnalysisResult,
 	})

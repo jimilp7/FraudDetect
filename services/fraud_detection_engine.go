@@ -15,7 +15,7 @@ func StringPointer(s string) *string {
 // FraudDetectionEngine is responsible for analyzing fraud in transactions.
 type FraudDetectionEngine struct {
 	fileID         string
-	analysisID     string
+	AnalysisID     string
 	AnalysisResult string
 	rules          []string
 	AnalysisMap    map[string]*AnalysisStatus
@@ -37,7 +37,7 @@ func NewFraudDetectionEngine(fileID, analysisID string, rules []string) *FraudDe
 
 	engine := &FraudDetectionEngine{
 		fileID:         fileID,
-		analysisID:     analysisID,
+		AnalysisID:     analysisID,
 		rules:          rules,
 		AnalysisMap:    make(map[string]*AnalysisStatus),
 		AnalysisLock:   &sync.Mutex{},
@@ -60,11 +60,11 @@ func (engine *FraudDetectionEngine) RunEngine() {
 	// Update engine.analysisMap with the results.
 
 	detector := NewGPTFraudDetector(engine.client, engine.fileID, engine.rules)
-	result := detector.RunAnalysis()
+	result := detector.RunAnalysis(engine.AnalysisID)
 
 	// Update the status and result ID
 	engine.AnalysisLock.Lock()
-	if status, exists := engine.AnalysisMap[engine.analysisID]; exists {
+	if status, exists := engine.AnalysisMap[engine.AnalysisID]; exists {
 		status.Status = "complete"
 		engine.AnalysisResult = result
 	}

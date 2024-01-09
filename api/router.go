@@ -6,6 +6,7 @@ import (
 	"sync"
 )
 
+// Spin up Engines as needed for the async analyze endpoint
 var (
 	Engines      = make(map[string]*services.FraudDetectionEngine)
 	EnginesMutex = &sync.Mutex{}

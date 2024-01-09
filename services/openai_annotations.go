@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// Utility function to parse Annotations from a given slice of interface{}.
+// Utility function to parse Annotations from a given slice of interface{} and return generated FileID by Assistant.
 func ParseAnnotation(rawAnnotation interface{}) (string, error) {
 	annotationMap, ok := rawAnnotation.(map[string]interface{})
 	if !ok {
