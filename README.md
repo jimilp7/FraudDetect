@@ -1,8 +1,8 @@
 LLM Powered API for Fraud Detection.
 
-API Endpoints
-The service provides several endpoints to handle transactions, analyze them for potential fraud, and retrieve the results.
+![Flowchart Diagram](./assets/FraudDetectFlow.svg)
 
+API Endpoints:
 1. Upload Transactions\
 Endpoint: POST /upload\
 Description: This endpoint is used to upload a CSV file containing transaction data.\

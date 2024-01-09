@@ -5,6 +5,19 @@ import (
 	"net/http"
 )
 
+// AnalysisResult represents the result of an analysis
+type AnalysisResult struct {
+	Result string `json:"result"`
+}
+
+// getAnalysisResults godoc
+// @Summary Get analysis results
+// @Description Retrieves the results of the completed analysis.
+// @Tags transactions
+// @Produce json
+// @Param analysisId path string true "Analysis ID"
+// @Success 200 {object} AnalysisResult
+// @Router /results/{analysisId} [get]
 func getAnalysisResults(c *gin.Context) {
 	analysisID := c.Param("analysisId")
 	// Retrieve the engine instance

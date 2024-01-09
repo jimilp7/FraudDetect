@@ -8,7 +8,15 @@ import (
 	"path/filepath"
 )
 
-// Handlers for each endpoint
+// uploadTransactions godoc
+// @Summary Upload transactions
+// @Description This endpoint is used to upload a CSV file containing transaction data.
+// @Tags transactions
+// @Accept multipart/form-data
+// @Produce json
+// @Param file formData file true "Transaction file"
+// @Success 200 {object} map[string]string "file_id"
+// @Router /upload [post]
 func uploadTransactions(c *gin.Context) {
 	// Accept a file upload
 	file, err := c.FormFile("file")

@@ -1,0 +1,128 @@
+definitions:
+  api.AnalysisResult:
+    properties:
+      result:
+        type: string
+    type: object
+  api.AnalysisStatus:
+    properties:
+      status:
+        type: string
+    type: object
+  api.AnalyzeRequest:
+    properties:
+      rules:
+        items:
+          type: string
+        type: array
+    type: object
+info:
+  contact: {}
+paths:
+  /analyze/{analysisId}/status:
+    get:
+      description: Checks the status of an ongoing analysis.
+      parameters:
+      - description: Analysis ID
+        in: path
+        name: analysisId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AnalysisStatus'
+      summary: Check analysis status
+      tags:
+      - transactions
+  /analyze/{fileID}:
+    post:
+      consumes:
+      - application/json
+      description: Initiates the analysis of the uploaded transactions file.
+      parameters:
+      - description: File ID
+        in: path
+        name: fileID
+        required: true
+        type: string
+      - description: Rules for detecting fraudulent transactions
+        in: body
+        name: rules
+        required: true
+        schema:
+          $ref: '#/definitions/api.AnalyzeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: analysis_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Analyze transactions
+      tags:
+      - transactions
+  /health:
+    get:
+      description: A simple health check endpoint to verify if the API is up and running.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: message
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Health check
+      tags:
+      - health
+  /results/{analysisId}:
+    get:
+      description: Retrieves the results of the completed analysis.
+      parameters:
+      - description: Analysis ID
+        in: path
+        name: analysisId
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/api.AnalysisResult'
+      summary: Get analysis results
+      tags:
+      - transactions
+  /upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: This endpoint is used to upload a CSV file containing transaction
+        data.
+      parameters:
+      - description: Transaction file
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: file_id
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Upload transactions
+      tags:
+      - transactions
+swagger: "2.0"

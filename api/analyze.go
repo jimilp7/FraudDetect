@@ -7,14 +7,24 @@ import (
 	"net/http"
 )
 
-type analyzeRequest struct {
+type AnalyzeRequest struct {
 	Rules []string `json:"rules"`
 }
 
+// analyzeTransactions godoc
+// @Summary Analyze transactions
+// @Description Initiates the analysis of the uploaded transactions file.
+// @Tags transactions
+// @Accept json
+// @Produce json
+// @Param fileID path string true "File ID"
+// @Param rules body AnalyzeRequest true "Rules for detecting fraudulent transactions"
+// @Success 200 {object} map[string]string "analysis_id"
+// @Router /analyze/{fileID} [post]
 func analyzeTransactions(c *gin.Context) {
 	// Extract file ID from params
 	FileID := c.Param("fileID")
-	var req analyzeRequest
+	var req AnalyzeRequest
 	if err := c.BindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 		return
@@ -45,6 +55,19 @@ func analyzeTransactions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"analysisId": analysisID})
 }
 
+// AnalysisStatus represents the response for checking an analysis status
+type AnalysisStatus struct {
+	Status string `json:"status"`
+}
+
+// checkAnalysisStatus godoc
+// @Summary Check analysis status
+// @Description Checks the status of an ongoing analysis.
+// @Tags transactions
+// @Produce json
+// @Param analysisId path string true "Analysis ID"
+// @Success 200 {object} AnalysisStatus
+// @Router /analyze/{analysisId}/status [get]
 func checkAnalysisStatus(c *gin.Context) {
 	analysisID := c.Param("analysisId")
 
