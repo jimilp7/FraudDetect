@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"github.com/sashabaranov/go-openai"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
 )
 
 type GPTFraudDetector struct {
@@ -20,13 +24,36 @@ func NewGPTFraudDetector(client *openai.Client, fileID string, rules []string) *
 	}
 }
 
+func saveFileLocally(fileName string, content io.ReadCloser) error {
+	// Ensure to close the content reader when the function exits
+	defer content.Close()
+
+	// Create the OpenAIFiles directory if it doesn't exist
+	dirPath := filepath.Join(".", "OpenAIFiles")
+	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
+		return err
+	}
+
+	// Create the file within the OpenAIFiles directory
+	filePath := filepath.Join(dirPath, fileName)
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Copy the content to the file
+	_, err = io.Copy(file, content)
+	return err
+}
+
 func (detector *GPTFraudDetector) RunAnalysis() string {
 	prompt := detector.preparePrompt()
 
 	ctx := context.Background()
 
 	// File upload
-	engineFileId := "iQ5UKtTa5FJQ2zMaZLLbB"
+	engineFileId := detector.fileID
 	uploadFileRequest := openai.FileRequest{
 		FileName: engineFileId,
 		FilePath: fmt.Sprintf("./TransactionFiles/%s.csv", engineFileId),
@@ -41,7 +68,7 @@ func (detector *GPTFraudDetector) RunAnalysis() string {
 	assistantCreateRequest := openai.AssistantRequest{
 		Model:        "gpt-4-1106-preview",
 		Name:         StringPointer("Fraud Detection Specialist"),
-		Instructions: StringPointer("You are a Professional Fraud Detection Specialist named Onyx working at JP Morgan Chase and have over 20 years experience in flagging fraudulent transactions. You will be provided with a CSV containing credit card transaction data."),
+		Instructions: StringPointer("You are a Data Scientist with over 20 years experience working at Google. You are working with the Fraud Detection Team to help them in flagging fraudulent transactions. You will be provided with a CSV File containing credit card transaction data and you will have to think hard to help the team deliver the best results. You are required not to ask follow up questions and work extremely smartly through ambiguity in getting results. Given a set of rules, you should output results."),
 		Tools:        []openai.AssistantTool{{Type: "code_interpreter"}},
 		FileIDs:      []string{openaiFileID},
 	}
@@ -73,6 +100,7 @@ func (detector *GPTFraudDetector) RunAnalysis() string {
 	var respContent string
 
 	for {
+		time.Sleep(5 * time.Second) // Polling interval
 		run, _ := detector.client.RetrieveRun(ctx, thread.ID, createRun.ID)
 
 		if run.Status == "completed" {
@@ -85,8 +113,17 @@ func (detector *GPTFraudDetector) RunAnalysis() string {
 					break
 				}
 			}
-			break
 
+			for _, message := range messages.Messages {
+				for _, rawAnnotation := range message.Content[0].Text.Annotations {
+					fileID, _ := ParseAnnotation(rawAnnotation)
+					annotatedFile, _ := detector.client.GetFile(ctx, fileID)
+					fileContent, _ := detector.client.GetFileContent(ctx, annotatedFile.ID)
+					_ = saveFileLocally(annotatedFile.FileName, fileContent)
+				}
+			}
+
+			break
 		} else {
 			fmt.Println("Waiting for the Assistant to process...")
 		}
@@ -97,7 +134,7 @@ func (detector *GPTFraudDetector) RunAnalysis() string {
 }
 
 func (detector *GPTFraudDetector) preparePrompt() string {
-	prompt := "Analyze the given dataset of financial transactions. Apply the following rules to detect potential fraud:\n\n. Return the list of fraudulent transactions in a detailed JSON Format, if none, return an empty JSON. Do not store in file, return directly."
+	prompt := "Analyze the given CSV File dataset of financial transactions. Apply the following rules to detect potential fraud:\n\n. Save the results in a JSON file and return it to me. If no results, return an empty json file."
 
 	for _, rule := range detector.rules {
 		prompt += "- " + rule + "\n"
