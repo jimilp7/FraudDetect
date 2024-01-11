@@ -28,13 +28,13 @@ func saveFileLocally(fileName string, content io.ReadCloser) error {
 	// Ensure to close the content reader when the function exits
 	defer content.Close()
 
-	// Create the OpenAIFiles directory if it doesn't exist
-	dirPath := filepath.Join(".", "OpenAIFiles")
+	// Create the ResultFiles directory if it doesn't exist
+	dirPath := filepath.Join(".", "ResultFiles")
 	if err := os.MkdirAll(dirPath, os.ModePerm); err != nil {
 		return err
 	}
 
-	// Create the file within the OpenAIFiles directory
+	// Create the file within the ResultFiles directory
 	filePath := filepath.Join(dirPath, fileName)
 	file, err := os.Create(filePath)
 	if err != nil {
