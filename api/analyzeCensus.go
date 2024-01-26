@@ -17,10 +17,44 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"strconv"
 )
+
+// PrettyPrint takes any Go data structure and returns a pretty-printed JSON string.
+func PrettyPrint(v interface{}) (string, error) {
+	prettyJSON, err := json.MarshalIndent(v, "", "    ")
+	if err != nil {
+		return "", err // return an empty string and the error
+	}
+	return string(prettyJSON), nil
+}
+
+// Member represents the structure of a member in your JSON.
+type Member struct {
+	DOB        string                   `json:"DOB"`
+	Dependents []map[string]interface{} `json:"dependents"`
+	Email      string                   `json:"email"`
+	Fips       string                   `json:"fips"`
+	FirstName  string                   `json:"firstName"`
+	Gender     string                   `json:"gender"`
+	LastName   string                   `json:"lastName"`
+	Tobacco    bool                     `json:"tobacco"`
+	Zip        string                   `json:"zip"`
+	Row        int                      `json:"row"`
+	Column     int                      `json:"column"`
+}
+
+// MembersData represents the structure of your JSON object.
+type MembersData struct {
+	Members []Member `json:"members"`
+}
 
 func analyzeCensus(c *gin.Context) {
 	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Something went wrong, retry"})
+		return
+	}
 	// Generate a NanoID
 	fileId, err := gonanoid.New()
 	if err != nil {
@@ -59,9 +93,9 @@ func analyzeCensus(c *gin.Context) {
 			return
 		}
 
+		_ = prependRowColumnNumbers(fileId)
 		result, err := processCensus(fileId)
-
-		c.JSON(200, gin.H{"message": result})
+		c.JSON(200, result)
 	case "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
 		// Handle XLS and XLSX files (convert and process)
 		if err := convertXLSXToCSV(file, fileId); err != nil {
@@ -69,15 +103,61 @@ func analyzeCensus(c *gin.Context) {
 			c.JSON(500, gin.H{"error": "Error in converting XLS/XLSX to CSV"})
 			return
 		}
+		_ = prependRowColumnNumbers(fileId)
 		result, err := processCensus(fileId)
 		if err != nil {
 			return
 		}
-
-		c.JSON(200, gin.H{"message": result})
+		c.JSON(200, result)
 	default:
 		c.JSON(400, gin.H{"error": err})
 	}
+}
+
+func prependRowColumnNumbers(fileName string) error {
+	// Open the CSV file
+	file, err := os.Open("./TransactionFiles/" + fileName + ".csv")
+	if err != nil {
+		return err
+	}
+
+	// Read the file into a 2D slice
+	csvReader := csv.NewReader(file)
+	records, err := csvReader.ReadAll()
+	if err != nil {
+		file.Close() // Close the file on read error
+		return err
+	}
+	file.Close() // Close the file after reading
+
+	// Add row numbers and prepare the header for column numbers
+	for i, row := range records {
+		records[i] = append([]string{strconv.Itoa(i)}, row...)
+	}
+	header := make([]string, len(records[0]))
+	for j := range header {
+		header[j] = strconv.Itoa(j)
+	}
+
+	// Prepend the header
+	records = append([][]string{header}, records...)
+
+	// Open the CSV file for writing (this will overwrite the existing file)
+	file, err = os.Create("./TransactionFiles/" + fileName + ".csv")
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Write the modified data back to the file
+	csvWriter := csv.NewWriter(file)
+	err = csvWriter.WriteAll(records)
+	if err != nil {
+		return err
+	}
+	csvWriter.Flush()
+
+	return nil
 }
 
 func convertXLSXToCSV(file *multipart.FileHeader, fileId string) error {
@@ -136,11 +216,11 @@ func convertXLSXToCSV(file *multipart.FileHeader, fileId string) error {
 	return nil
 }
 
-func processCensus(fileName string) (map[string]interface{}, error) {
+func processCensus(fileName string) (MembersData, error) {
 	// Open the CSV file
 	file, err := os.Open("./TransactionFiles/" + fileName + ".csv")
 	if err != nil {
-		return nil, err
+		return MembersData{}, err
 	}
 	defer file.Close()
 
@@ -151,92 +231,142 @@ func processCensus(fileName string) (map[string]interface{}, error) {
 	messages := []openai.ChatCompletionMessage{
 		{
 			Role:    openai.ChatMessageRoleSystem,
-			Content: "You are an Data Engineer working at Google with over 20 years experience who is a perfectionist at their job.",
+			Content: "You are Python REPL",
 		},
 	}
 
-	var allResults []map[string]interface{}
+	var allResults MembersData
 
 	// Process 10 rows at a time
-	const batchSize = 10
+	const batchSize = 15
 	for {
 		batch, err := readBatch(reader, batchSize)
 		if err != nil {
 			if err == io.EOF {
 				if len(batch) > 0 {
-					fmt.Println("Calling openai")
+					//fmt.Println("Calling openai,", batch)
 					resultJSON, _ := callOpenai(batch, &messages)
 					fmt.Println("Calling openai done ")
-					allResults = append(allResults, resultJSON)
+					appendMembers(resultJSON, &allResults)
 				}
 				break // End of file reached
 			}
-			return nil, err // Other error occurred
+			return MembersData{}, err // Other error occurred
 		}
 
+		//fmt.Println("Calling openai,", batch)
 		//Call OpenAI with the batch and messages
 		resultJSON, err := callOpenai(batch, &messages)
+		fmt.Println("Calling openai done ")
 		if err != nil {
-			return nil, err
+			return MembersData{}, err
 		}
-		allResults = append(allResults, resultJSON)
+		appendMembers(resultJSON, &allResults)
 	}
 
-	//Flatten
-	flatResult := flattenResults(allResults)
-	return flatResult, nil
+	return allResults, nil
 }
 
-func flattenResults(allResults []map[string]interface{}) map[string]interface{} {
-	flatResult := make(map[string]interface{})
-	for _, resultMap := range allResults {
-		for key, value := range resultMap {
-			flatResult[key] = value
-		}
-	}
-	return flatResult
+// appendMembers takes a MembersData struct and appends its members to the Members slice of allResults.
+func appendMembers(data MembersData, allResults *MembersData) {
+	allResults.Members = append(allResults.Members, data.Members...)
 }
 
-func callOpenai(csvData [][]string, messages *[]openai.ChatCompletionMessage) (map[string]interface{}, error) {
+func callOpenai(csvData [][]string, messages *[]openai.ChatCompletionMessage) (MembersData, error) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
 
 	csvString, err := convertCSVDataToString(csvData)
+	fmt.Println("sendinf csv ", csvString)
 	if err != nil {
 		fmt.Println("Error converting CSV data to string:", err)
-		return nil, err
+		return MembersData{}, err
 	}
 
-	userInstruction := fmt.Sprintf("Use this JSON Schema as a reference to parse the following csv by hand and return to me the parsed JSON object.\n<JSON Schema>\n{ \"type\": \"array\", \"items\": { \"type\": \"object\", \"properties\": { \"email\": { \"type\": \"string\" }, \"gender\": { \"type\": \"string\", \"enum\": [\"0\", \"1\", \"m\", \"f\", \"male\", \"female\"] }, \"name\": { \"type\": \"string\" }, \"zip_code\": { \"type\": \"string\", \"pattern\": \"^[0-9]{5}(?:-[0-9]{4})?$\" }, \"last_tobacco_use_date\": { \"type\": [\"string\", \"null\"], \"format\": \"date\" }, \"salary\": { \"type\": [\"integer\", \"null\"] }, \"date_of_birth\": { \"type\": \"string\", \"format\": \"date\" }, \"address1\": { \"type\": [\"string\", \"null\"] }, \"address2\": { \"type\": [\"string\", \"null\"] }, \"city\": { \"type\": [\"string\", \"null\"] }, \"phone_number\": { \"type\": [\"string\", \"null\"] }, \"hireDate\": { \"type\": [\"string\", \"null\"], \"format\": \"date\" }, \"jobTitle\": { \"type\": [\"string\", \"null\"] }, \"ssn\": { \"type\": [\"string\", \"null\"] }, \"employment_type\": { \"type\": [\"string\", \"null\"], \"enum\": [\"fullTime\", \"partTime\"] }, \"dependents\": { \"type\": [\"array\", \"null\"], \"items\": { \"$ref\": \"#/definitions/dependent\" } } }, \"required\": [\"email\", \"gender\", \"name\", \"zip_code\", \"date_of_birth\"] }, \"definitions\": { \"dependent\": { \"type\": \"object\", \"properties\": { \"firstName\": { \"type\": \"string\" }, \"lastName\": { \"type\": \"string\" }, \"zipCode\": { \"type\": [\"string\", \"null\"], \"pattern\": \"^[0-9]{5}(?:-[0-9]{4})?$\" }, \"countyID\": { \"type\": [\"string\", \"null\"] }, \"dateOfBirth\": { \"type\": \"string\", \"format\": \"date\" }, \"gender\": { \"type\": \"string\", \"enum\": [\"0\", \"1\", \"m\", \"f\", \"male\", \"female\"] }, \"lastUsedTobacco\": { \"type\": [\"string\", \"null\"], \"format\": \"date\" }, \"relationship\": { \"type\": \"string\", \"enum\": [\"spouse\", \"child\"] }, \"ssn\": { \"type\": [\"string\", \"null\"] } }, \"required\": [\"firstName\", \"lastName\", \"dateOfBirth\", \"gender\", \"relationship\"] } } }\n</JSON Schema>\n<csv>%s</csv>\n\nFor example:\n<JSON Schema>\n{ \"type\": \"array\", \"items\": { \"type\": \"object\", \"properties\": { \"email\": { \"type\": \"string\" }, \"gender\": { \"type\": \"string\", \"enum\": [\"0\", \"1\", \"m\", \"f\", \"male\", \"female\"] }, \"name\": { \"type\": \"string\" }, \"zip_code\": { \"type\": \"string\", \"pattern\": \"^[0-9]{5}(?:-[0-9]{4})?$\" }, \"last_tobacco_use_date\": { \"type\": [\"string\", \"null\"], \"format\": \"date\" }, \"salary\": { \"type\": [\"integer\", \"null\"] }, \"date_of_birth\": { \"type\": \"string\", \"format\": \"date\" }, \"address1\": { \"type\": [\"string\", \"null\"] }, \"address2\": { \"type\": [\"string\", \"null\"] }, \"city\": { \"type\": [\"string\", \"null\"] }, \"phone_number\": { \"type\": [\"string\", \"null\"] }, \"hireDate\": { \"type\": [\"string\", \"null\"], \"format\": \"date\" }, \"jobTitle\": { \"type\": [\"string\", \"null\"] }, \"ssn\": { \"type\": [\"string\", \"null\"] }, \"employment_type\": { \"type\": [\"string\", \"null\"], \"enum\": [\"fullTime\", \"partTime\"] }, \"dependents\": { \"type\": [\"array\", \"null\"], \"items\": { \"$ref\": \"#/definitions/dependent\" } } }, \"required\": [\"email\", \"gender\", \"name\", \"zip_code\", \"date_of_birth\"] }, \"definitions\": { \"dependent\": { \"type\": \"object\", \"properties\": { \"firstName\": { \"type\": \"string\" }, \"lastName\": { \"type\": \"string\" }, \"zipCode\": { \"type\": [\"string\", \"null\"], \"pattern\": \"^[0-9]{5}(?:-[0-9]{4})?$\" }, \"countyID\": { \"type\": [\"string\", \"null\"] }, \"dateOfBirth\": { \"type\": \"string\", \"format\": \"date\" }, \"gender\": { \"type\": \"string\", \"enum\": [\"0\", \"1\", \"m\", \"f\", \"male\", \"female\"] }, \"lastUsedTobacco\": { \"type\": [\"string\", \"null\"], \"format\": \"date\" }, \"relationship\": { \"type\": \"string\", \"enum\": [\"spouse\", \"child\"] }, \"ssn\": { \"type\": [\"string\", \"null\"] } }, \"required\": [\"firstName\", \"lastName\", \"dateOfBirth\", \"gender\", \"relationship\"] } } }\n</JSON Schema>\n<csv>EID,First Name,Middle Name,Last Name,Location,Relationship,SSN,Birth Date,Sex,Race,Citizenship,Language,Address 1,Address 2,City,State,Zip Code,County,Personal Phone,Work Phone,Mobile Phone,Email,Personal Email,Marital Status,Hire Date,Pay Cycle,Tobacco User,Disabled,Manager,HR Manager,Department,Division,Job Title,Job Class,Employment Type,Status,Remaining Deduction Periods,Benefit Cost Factor,Compensation Amount,Compensation Type,Compensation Start Date,Compensation Reason,Base + Commission Compensation Amount,Base + Commission Compensation Start Date,Base + Commission Compensation Reason,W2 Wages,Scheduled Hours,Sick Hours,Personal Hours,Termination Date,COBRA Date,Rehire Date,Benefit Eligible Date,Dependent Employer,Unlock Enrollment Date,GI Plan Types,GI Amount,GI Date,Member Id Unum,Member Id Humana,Notes\n123456,Alice,Jane,Williams,Branch 2,Employee,987-65-4321,05-15-88,F,Asian,USA,Spanish,456 Oak Street,Unit 5,Chicago,IL,60601,Cook,555-987-6543,555-123-4567,555-789-1234,alice.williams@example.com,alice@gmail.com,Single,03-08-20,Monthly,No,Yes,Emily Smith,HR Director,Sales,Division B,Sales Manager,Entry,Part-Time,Active,40,9.8,22,10-15-20,,,12-08-19,,08-13-18,Life,\"$60,000.00\",07-01-19,DEF-789,XYZ-456,These are some random notes for the employee.</csv>\n<Parsed Result>[\n    {\n        \"email\": \"alice.williams@example.com\",\n        \"gender\": \"f\",\n        \"name\": \"Alice Jane Williams\",\n        \"zip_code\": \"60601\",\n        \"date_of_birth\": \"1988-05-15\",\n        \"last_tobacco_use_date\": null,\n        \"salary\": null,\n        \"address1\": \"456 Oak Street\",\n        \"address2\": \"Unit 5\",\n        \"city\": \"Chicago\",\n        \"phone_number\": \"555-987-6543\",\n        \"hireDate\": \"2020-03-08\",\n        \"jobTitle\": \"Sales Manager\",\n        \"ssn\": \"987-65-4321\",\n        \"employment_type\": \"partTime\",\n        \"dependents\": []\n    }\n]</Parsed Result>", csvString)
-
+	userInstruction := fmt.Sprintf(`<python>
+group_health_census_csv='''%s'''
+json_schema = {
+  "type": "object",
+  "properties": {
+    "members": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "firstName": { "type": "string" },
+          "lastName": { "type": "string" },
+          "email": { "type": ["string", "null"], "format": "email" },
+          "DOB": { "type": "string", "pattern": "^(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/(19|20)\\d{2}$" },
+          "zip": { "type": "string", "pattern": "^[0-9]{5}(?:-[0-9]{4})?$" },
+          "fips": { "type": "string" },
+          "gender": { "type": "string", "enum": ["M", "F", "male", "female", "MALE", "FEMALE"] },
+          "tobacco": { "type": "boolean", "default": false },
+          "tobaccoUseDate": { "type": ["string", "null"], "format": "date" },
+          "row": { "type": "integer" },
+          "column": { "type": "integer" },
+          "dependents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "firstName": { "type": "string" },
+                "lastName": { "type": "string" },
+                "DOB": { "type": "string", "pattern": "^(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/(19|20)\\d{2}$" },
+                "gender": { "type": "string", "enum": ["M", "F", "male", "female", "MALE", "FEMALE"] },
+                "tobacco": { "type": "boolean", "default": false },
+                "tobaccoUseDate": { "type": ["string", "null"], "format": "date" },
+                "relationship": { "type": "string", "enum": ["child", "spouse"] },
+                "row": { "type": "integer" },
+                "column": { "type": "integer" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+# convert is a ML algorithm that takes in a JSON schema and CSV File and interprets unstructured CSV data into structured JSON schema.
+# JSON Schema has an array of Employees and Dependents.
+# CSV may have informtaion about company (should be ignored), miscellaneous(should be ignored) and a list of employees with their dependents (important).
+# convert first strips out all information that is outside the list of employees and returns interpreted employee data as defined in JSON Schema provided.
+# NOTE: the other sections may have some employee info that should be ignored, if no employee data is found it returns { "members": [] }
+# member row, column and dependent row, column corresponds to row and column in group_health_census_csv
+employee_plus_dependents_data = convert(json_schema = json_schema, group_health_census_csv = group_health_census_csv)
+pprint.pprint(employee_plus_dependents_data)`, csvString)
 	// Add a user message to the messages
 	*messages = append(*messages, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleUser,
 		Content: userInstruction,
 	})
 
+	fmt.Println("Calling OpenAI")
 	// Call OpenAI's Chat Completion API
 	client := openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 	resp, err := client.CreateChatCompletion(
 		context.Background(),
 		openai.ChatCompletionRequest{
-			Model:          openai.GPT4TurboPreview,
+			//Model: openai.GPT4TurboPreview,
+			Model:          openai.GPT3Dot5Turbo1106,
 			ResponseFormat: &openai.ChatCompletionResponseFormat{Type: openai.ChatCompletionResponseFormatTypeJSONObject},
 			Messages:       *messages,
 		},
 	)
 	if err != nil {
 		fmt.Println("Openai Err", err)
-		return nil, err
+		return MembersData{}, err
 	}
 
+	fmt.Println("Calling OpenAI Done", resp.Choices[0].Message.Content)
+
 	// Parse the response
-	var resultJSON map[string]interface{}
+	var resultJSON MembersData
 	err = json.Unmarshal([]byte(resp.Choices[0].Message.Content), &resultJSON)
 	if err != nil {
-		return nil, err
+		fmt.Println(err)
+		return MembersData{}, err
 	}
 
 	// Append the result to messages as a system message
@@ -244,6 +374,9 @@ func callOpenai(csvData [][]string, messages *[]openai.ChatCompletionMessage) (m
 		Role:    openai.ChatMessageRoleAssistant,
 		Content: resp.Choices[0].Message.Content,
 	})
+
+	pp, _ := PrettyPrint(resultJSON)
+	fmt.Println("openai result ", pp)
 
 	return resultJSON, nil
 }
