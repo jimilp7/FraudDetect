@@ -20,6 +20,7 @@ func InitRoutes(router *gin.Engine) {
 	router.POST("/upload", uploadTransactions)
 	router.POST("/analyze/:fileID", analyzeTransactions)
 	router.GET("/analyze/:analysisId/status", checkAnalysisStatus)
+	router.POST("/analyze/census/", analyzeCensus) // ToDo convert to use /upload fileID
 	router.GET("/results/:analysisId", getAnalysisResults)
 	router.GET("/health", healthCheck)
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
