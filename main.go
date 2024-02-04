@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	fmt.Println("Hello World")
+	fmt.Println("This is a test")
 	router := gin.Default()
 
 	// Initialize routes
